@@ -1,0 +1,112 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  pTagCreatedBy:
+    Default: ''
+    Type: String
+    Description: User who created the instances
+  pTagEnvironment:
+    Default: ''
+    Type: String
+    Description: Environment (dev, ref,prod)
+  pTagProject:
+    Default: ''
+    Type: String
+    Description: project these instances are part of
+  pHttpIPSpace:
+    Type: String
+    Description: Allow https from these IP Addresses
+  pAllowedVpcEndpoints:
+    Type: CommaDelimitedList
+    Description: "Comma Delimited List of VPC Endpoints to permit"
+
+
+Resources:
+
+
+  A:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: PublicRead
+      LoggingConfiguration:
+        DestinationBucketName: !Ref 'B'
+        LogFilePrefix: testing-logs
+    B:
+      Type: AWS::S3::Bucket
+      Properties:
+        AccessControl: LogDeliveryWrite
+
+
+# Pour sécuriser nos données du bucket:
+
+DeployBucketPolicy:
+  Type: AWS::S3::BucketPolicy
+  Properties:
+    Bucket: !Ref A
+    PolicyDocument:
+      Statement:
+        - Sid: IPAllowGetViaHTTP
+          Effect: Allow
+          Principal: '*'
+          Action: s3:getObject
+          Resource: !Join ["", ['arn:aws:s3:::', !Ref A, '/*']]
+          Condition:
+            IpAddress:
+              aws:SourceIp: !Ref pHttpIPSpace
+        - Sid: VpceGetViaHTTP
+          Effect: Allow
+          Principal: '*'
+          Action: s3:getObject
+          Resource: !Join ["", ['arn:aws:s3:::', !Ref A, '/*']]
+          Condition:
+            StringEquals:
+              aws:sourceVpce: !Ref pAllowedVpcEndpoints
+
+
+  DeployBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref A
+      AccessControl: Private
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - Authorization
+            MaxAge: '300'
+            AllowedMethods:
+              - GET
+            Id: AllowHTTP
+            AllowedOrigins:
+              - '*'
+      Tags:
+        - Key: contact-email
+          Value: !Ref pTagCreatedBy
+        - Key: application
+          Value: !Ref pTagProject
+        - Key: environment
+          Value: !Ref pTagEnvironment
+        - Key: customer
+          Value: pht
+
+
+      LoggingConfiguration:
+        DestinationBucketName:
+          Ref: B
+        LogFilePrefix: !Join ['', ['S3logs/', !Ref A, '/']]
+      LifecycleConfiguration:
+        Rules:
+          - Status: Enabled
+            Id: ExpireOldVersions
+            NoncurrentVersionExpirationInDays: '5'
+      VersioningConfiguration:
+        Status: Enabled
+
+
+
+Outputs:
+  BucketName:
+    Value: !Ref 'A'
+    Description: Name of the sample Amazon S3 bucket with a logging configuration.
+
+
+---
